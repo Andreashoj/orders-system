@@ -9,7 +9,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func StartNewDB() (*sql.DB, error) {
+func NewDB() (*sql.DB, error) {
 	query, err := os.ReadFile("internal/db/init.sql")
 	if err != nil {
 		return nil, fmt.Errorf("failed reading sql from init.sql: %s", err)
