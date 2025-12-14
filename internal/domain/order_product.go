@@ -1,4 +1,4 @@
-package models
+package domain
 
 type OrderProduct struct {
 	OrderID   int `json:"order_id,omitempty"`

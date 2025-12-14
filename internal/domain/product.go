@@ -1,4 +1,4 @@
-package models
+package domain
 
 type Product struct {
 	ID    uint   `json:"id,omitempty"`
