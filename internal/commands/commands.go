@@ -1,6 +1,8 @@
 package commands
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Command string
 
@@ -21,7 +23,7 @@ func WelcomeMessage() (string, error) {
 	return username, nil
 }
 
-func GetInput() Command {
+func GetMenu() Command {
 	fmt.Println(">1: To see catalogue")
 	fmt.Println(">2: See cart")
 	fmt.Println(">3: Checkout")
@@ -31,12 +33,4 @@ func GetInput() Command {
 	fmt.Scan(&input)
 
 	return input
-}
-
-func GetCatalogue() {
-	// Get DB products here
-	fmt.Println(">YOOOO")
-	fmt.Println(">YOOOO")
-	fmt.Println(">YOOOO")
-	fmt.Println(">YOOOO")
 }
