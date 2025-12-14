@@ -128,6 +128,7 @@ func handleCatalogue(catalogueService *services.CatalogueService) error {
 	fmt.Printf("> Nice, you added: %v, to the cart\n", quantity)
 
 	// Store selected into cart
+
 	// User can check out
 	// Should see their can and get a proceed confirmation selection
 	// This should trigger events for
