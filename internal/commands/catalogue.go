@@ -18,14 +18,16 @@ func DisplayCatalogue(catalogue map[int]domain.Product) {
 	}
 }
 
-func GetProductSelection(catalogue map[int]domain.Product) int {
+func GetProductSelection(catalogue map[int]domain.Product) *domain.Product {
 	scanner := bufio.NewScanner(os.Stdin)
 	var selection int
+	var product domain.Product
 	for {
 		scanner.Scan()
 		_, err := fmt.Sscanf(scanner.Text(), "%d", &selection)
 		if err == nil {
 			if _, exists := catalogue[selection]; exists {
+				product = catalogue[selection]
 				break
 			}
 		}
@@ -33,7 +35,7 @@ func GetProductSelection(catalogue map[int]domain.Product) int {
 		fmt.Println("> Sorry that's not a valid selection, try again!")
 	}
 
-	return selection
+	return &product
 }
 
 func GetProductQuantity() int {

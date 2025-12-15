@@ -9,6 +9,7 @@ import (
 
 type ProductRepo interface {
 	GetAll() ([]domain.Product, error)
+	Get(productID string) (*domain.Product, error)
 }
 
 type productRepo struct {
@@ -38,4 +39,16 @@ func (p productRepo) GetAll() ([]domain.Product, error) {
 	}
 
 	return products, nil
+}
+
+func (p productRepo) Get(productID string) (*domain.Product, error) {
+	product := domain.Product{
+		ID: productID,
+	}
+
+	if err := p.DB.QueryRow(`SELECT name, price FROM products WHERE id = $1`, productID).Scan(&product.Name, &product.Price); err != nil {
+		return nil, fmt.Errorf("failed retrieving the product: %s", err)
+	}
+
+	return &product, nil
 }

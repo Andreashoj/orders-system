@@ -1,11 +1,7 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"maps"
-	"os"
-	"slices"
 
 	"github.com/andreashoj/order-system/internal/commands"
 	"github.com/andreashoj/order-system/internal/db"
@@ -36,13 +32,14 @@ func main() {
 
 	// Repos
 	userRepo := repos.NewUserRepo(DB)
+	cartRepo := repos.NewCartRepo(DB)
 	productRepo := repos.NewProductRepo(DB)
 
 	// Declare services
-	registrationService := services.NewRegistrationService(userRepo)
-	catalogueService := services.NewCatalogueService(productRepo)
+	shoppingService := services.NewShoppingService(productRepo, cartRepo)
+	registrationService := services.NewRegistrationService(userRepo, cartRepo)
 
-	_, err = handleIntroduction(registrationService)
+	user, err := handleIntroduction(registrationService)
 	if err != nil {
 		fmt.Printf("Introduction failed: %s", err)
 		return
@@ -53,14 +50,16 @@ func main() {
 
 		switch cmd {
 		case commands.Catalogue:
-			err = handleCatalogue(catalogueService)
+			err = handleCatalogue(shoppingService, user)
 			if err != nil {
 				fmt.Printf("Something went wrong while showing the catalogue: %s", err)
 				break
 			}
 		case commands.Cart:
 		case commands.Checkout:
-
+		case commands.Exit:
+			fmt.Println("Thanks for stopping by, cya next time!")
+			return
 		}
 	}
 }
@@ -79,27 +78,33 @@ func handleIntroduction(registrationService *services.RegistrationService) (*dom
 	return user, nil
 }
 
-func handleCatalogue(catalogueService *services.CatalogueService) error {
-	products, err := catalogueService.GetAllProducts()
+func handleCatalogue(shoppingService *services.ShoppingService, user *domain.User) error {
+	products, err := shoppingService.GetAllProducts()
 	if err != nil {
 		return fmt.Errorf("beep boop, something went wrong - is that a you or me problem.. ?: %s", err)
 	}
 
-	// Create catalogue mapping, will be used as the input value in when showing the catalogue
+	// Create catalogue mapping, will be used as the display number the user can select when browsing the catalogue
 	catalogue := make(map[int]domain.Product, len(products))
 	for i, product := range products {
 		catalogue[i+1] = product
 	}
 
-	// Print catalogue
 	commands.DisplayCatalogue(catalogue)
+
+	// Awaits user inputs
 	selection := commands.GetProductSelection(catalogue)
 	quantity := commands.GetProductQuantity()
 
-	// Merge cart and catalogue service into shopping service
-	// Store selected into cart
-	// Create model
-	// AddToCart
+	// Add the selected product + quantity to cart
+	_, err := shoppingService.AddToCart(user.ID, selection.ID, quantity)
+	if err != nil {
+		return fmt.Errorf("failed adding product to cart: %s", err)
+	}
+
+	// Prompt user to continue shopping or to check out
+	// Continue ? Print Display Catalogue
+	// Check out ? Trigger check out flow (somehow)
 
 	// User can check out
 	// Should see their can and get a proceed confirmation selection

@@ -1,0 +1,1 @@
+DROP DATABASE orders_db;

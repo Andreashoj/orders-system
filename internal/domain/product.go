@@ -1,7 +1,7 @@
 package domain
 
 type Product struct {
-	ID    uint   `json:"id,omitempty"`
+	ID    string `json:"id,omitempty"`
 	Name  string `json:"name,omitempty"`
 	Price int    `json:"price,omitempty"`
 }

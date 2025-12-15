@@ -10,6 +10,7 @@ const (
 	Catalogue Command = "1"
 	Cart      Command = "2"
 	Checkout  Command = "3"
+	Exit      Command = "Q"
 )
 
 func WelcomeMessage() (string, error) {

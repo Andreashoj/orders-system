@@ -8,12 +8,14 @@ import (
 )
 
 type RegistrationService struct {
-	repo repos.UserRepo
+	userRepo repos.UserRepo
+	cartRepo repos.CartRepo
 }
 
-func NewRegistrationService(userRepo repos.UserRepo) *RegistrationService {
+func NewRegistrationService(userRepo repos.UserRepo, cartRepo repos.CartRepo) *RegistrationService {
 	return &RegistrationService{
-		repo: userRepo,
+		userRepo: userRepo,
+		cartRepo: cartRepo,
 	}
 }
 
@@ -23,8 +25,13 @@ func (r *RegistrationService) CreateUser(username string) (*domain.User, error) 
 		return nil, fmt.Errorf("failed creating domain user: %s", err)
 	}
 
-	if err = r.repo.Create(user); err != nil {
+	if err = r.userRepo.Create(user); err != nil {
 		return nil, fmt.Errorf("failed creating the user in the database: %s", err)
+	}
+
+	cart := domain.NewCart(user)
+	if err = r.cartRepo.Create(cart); err != nil {
+		return nil, fmt.Errorf("failed creating cart: %s", err)
 	}
 
 	return user, nil

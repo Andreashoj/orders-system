@@ -9,7 +9,7 @@ import (
 type Cart struct {
 	ID          string     `json:"id,omitempty"`
 	UserID      string     `json:"user_id,omitempty"`
-	Items       []CartItem `json:"quantity,omitempty"` // Is most likely not needed
+	Items       []CartItem `json:"quantity,omitempty"`
 	LastUpdated time.Time  `json:"last_updated"`
 }
 
@@ -25,6 +25,15 @@ func NewCart(user *User) *Cart {
 		Items:       []CartItem{},
 		LastUpdated: time.Now(),
 	}
+}
+
+func (c *Cart) Add(product *Product, quantity int) {
+	cartItem := CartItem{
+		ProductID: product.ID,
+		Quantity:  quantity,
+	}
+
+	c.Items = append(c.Items, cartItem)
 }
 
 func (c *Cart) UpdateCart() {
