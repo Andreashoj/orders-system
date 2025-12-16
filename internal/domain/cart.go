@@ -15,7 +15,9 @@ type Cart struct {
 
 type CartItem struct {
 	ProductID string
+	Price     int
 	Quantity  int
+	Name      string
 }
 
 func NewCart(user *User) *Cart {
@@ -31,6 +33,8 @@ func (c *Cart) Add(product *Product, quantity int) {
 	cartItem := CartItem{
 		ProductID: product.ID,
 		Quantity:  quantity,
+		Price:     product.Price,
+		Name:      product.Name,
 	}
 
 	c.Items = append(c.Items, cartItem)

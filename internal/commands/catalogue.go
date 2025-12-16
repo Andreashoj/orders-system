@@ -1,10 +1,8 @@
 package commands
 
 import (
-	"bufio"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 
 	"github.com/andreashoj/order-system/internal/domain"
@@ -19,7 +17,6 @@ func DisplayCatalogue(catalogue map[int]domain.Product) {
 }
 
 func GetProductSelection(catalogue map[int]domain.Product) *domain.Product {
-	scanner := bufio.NewScanner(os.Stdin)
 	var selection int
 	var product domain.Product
 	for {
@@ -39,7 +36,6 @@ func GetProductSelection(catalogue map[int]domain.Product) *domain.Product {
 }
 
 func GetProductQuantity() int {
-	scanner := bufio.NewScanner(os.Stdin)
 	var quantity int
 	fmt.Println("> Nice choice! How many do you want?")
 	for {
@@ -54,4 +50,22 @@ func GetProductQuantity() int {
 
 	fmt.Printf("> Nice, you added: %v, to the cart\n", quantity)
 	return quantity
+}
+
+func PromptCheckout() bool {
+	var wantsToCheckout bool
+	fmt.Println("> Do you wish to checkout (Y)es? or continue shopping (N)o?")
+	for {
+		scanner.Scan()
+		input := scanner.Text()
+		if input == "Y" || input == "y" {
+			return true
+		} else if input == "N" || input == "n" {
+			return false
+		}
+
+		fmt.Println("> Sorry that's not a valid selection, try again!")
+	}
+
+	return wantsToCheckout
 }

@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 )
 
 type Command string
@@ -12,6 +14,8 @@ const (
 	Checkout  Command = "3"
 	Exit      Command = "Q"
 )
+
+var scanner = bufio.NewScanner(os.Stdin)
 
 func WelcomeMessage() (string, error) {
 	fmt.Println("Welcome to the online CLI shopper, only chads allowed here. \nWhat do you prefer to be addressed as?")
@@ -25,10 +29,10 @@ func WelcomeMessage() (string, error) {
 }
 
 func GetMenu() Command {
-	fmt.Println(">1: To see catalogue")
-	fmt.Println(">2: See cart")
-	fmt.Println(">3: Checkout")
-	fmt.Println(">Q: Exit")
+	fmt.Println("> 1: To see catalogue")
+	fmt.Println("> 2: See cart")
+	fmt.Println("> 3: Checkout")
+	fmt.Println("> Q: Exit")
 
 	var input Command
 	fmt.Scan(&input)

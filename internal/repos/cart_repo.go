@@ -52,8 +52,30 @@ func (c *cartRepo) Get(userID string) (*domain.Cart, error) {
 	cart := domain.Cart{
 		UserID: userID,
 	}
-	if err := c.DB.QueryRow(`SELECT id FROM carts WHERE user_id = $1`, userID).Scan(&cart.ID); err != nil {
+
+	// Get cart id separately to ensure it's set
+	if err := c.DB.QueryRow(`SELECT id FROM carts WHERE user_id = $1`, cart.UserID).Scan(&cart.ID); err != nil {
+		return nil, fmt.Errorf("failed getting cart: %s", err)
+	}
+
+	// Get cart items
+	query := `SELECT cart_products.quantity, products.id, products.name, products.price FROM cart_products
+					INNER JOIN products
+						ON products.id = cart_products.product_id
+							WHERE cart_products.cart_id = $1`
+
+	rows, err := c.DB.Query(query, cart.ID)
+	if err != nil {
 		return nil, fmt.Errorf("failed retrieving cart for user: %s, error: %s", userID, err)
+	}
+
+	for rows.Next() {
+		var cartItem domain.CartItem
+		if err = rows.Scan(&cartItem.Quantity, &cartItem.ProductID, &cartItem.Name, &cartItem.Price); err != nil {
+			return nil, fmt.Errorf("failed scanning cartItem: %s", err)
+		}
+
+		cart.Items = append(cart.Items, cartItem)
 	}
 
 	return &cart, nil

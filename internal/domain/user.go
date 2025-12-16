@@ -15,7 +15,7 @@ type User struct {
 
 func NewUser(username string) (*User, error) {
 	if len(username) <= 3 {
-		return nil, fmt.Errorf("Username must be longer than 3 characters")
+		return nil, fmt.Errorf("username must be longer than 3 characters")
 	}
 
 	return &User{

@@ -18,6 +18,7 @@ func main() {
 		return
 	}
 
+	// Message Broker
 	rclient, err := pubsub.NewRabbitMqClient()
 	if err != nil {
 		fmt.Printf("Failed starting rabbit client: %s", err)
@@ -35,7 +36,7 @@ func main() {
 	cartRepo := repos.NewCartRepo(DB)
 	productRepo := repos.NewProductRepo(DB)
 
-	// Declare services
+	// Services
 	shoppingService := services.NewShoppingService(productRepo, cartRepo)
 	registrationService := services.NewRegistrationService(userRepo, cartRepo)
 
@@ -55,8 +56,22 @@ func main() {
 				fmt.Printf("Something went wrong while showing the catalogue: %s", err)
 				break
 			}
+
+			if userWantsCheckout := commands.PromptCheckout(); userWantsCheckout {
+				err = handleCheckout(shoppingService, user)
+				if err != nil {
+					fmt.Printf("Failed checkout: %s", err)
+					return
+				}
+			}
 		case commands.Cart:
+			err = handleCart(shoppingService, user)
+			if err != nil {
+				fmt.Printf("Failed showing cart: %s", err)
+				return
+			}
 		case commands.Checkout:
+			err = handleCheckout(shoppingService, user)
 		case commands.Exit:
 			fmt.Println("Thanks for stopping by, cya next time!")
 			return
@@ -97,21 +112,25 @@ func handleCatalogue(shoppingService *services.ShoppingService, user *domain.Use
 	quantity := commands.GetProductQuantity()
 
 	// Add the selected product + quantity to cart
-	_, err := shoppingService.AddToCart(user.ID, selection.ID, quantity)
+	_, err = shoppingService.AddToCart(user.ID, selection.ID, quantity)
 	if err != nil {
 		return fmt.Errorf("failed adding product to cart: %s", err)
 	}
 
-	// Prompt user to continue shopping or to check out
-	// Continue ? Print Display Catalogue
-	// Check out ? Trigger check out flow (somehow)
+	return nil
+}
 
-	// User can check out
-	// Should see their can and get a proceed confirmation selection
-	// This should trigger events for
-	// - Create transaction
-	// - Update inventory
-	// - Create shipping - create some sort of tracking ID, that holds procees of shipment status
+func handleCart(shoppingService *services.ShoppingService, user *domain.User) error {
+	cart, err := shoppingService.ShowCart(user.ID)
+	if err != nil {
+		return fmt.Errorf("failed retrieving cart: %s", err)
+	}
 
+	commands.DisplayCart(cart)
+
+	return nil
+}
+
+func handleCheckout(shoppingService *services.ShoppingService, user *domain.User) error {
 	return nil
 }
