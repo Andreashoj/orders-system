@@ -9,6 +9,7 @@ import (
 	"github.com/andreashoj/order-system/internal/pubsub"
 	"github.com/andreashoj/order-system/internal/repos"
 	"github.com/andreashoj/order-system/internal/services"
+	"github.com/rabbitmq/amqp091-go"
 )
 
 func main() {
@@ -25,9 +26,24 @@ func main() {
 		return
 	}
 
-	err = pubsub.SetupSubs(rclient)
+	err = pubsub.SetupExchange(rclient)
 	if err != nil {
-		fmt.Printf("Failed setting up subscriptions: %s", err)
+		fmt.Printf("Failed setting up exchange: %s", err)
+		return
+	}
+
+	if err = pubsub.NewQueue(rclient, pubsub.QueueTransaction, pubsub.TransactionKey, pubsub.ExchangeOrderDirect, handleTransaction); err != nil {
+		fmt.Printf("failed creating transaction queue: %s", err)
+		return
+	}
+
+	if err = pubsub.NewQueue(rclient, pubsub.QueueShipping, pubsub.ShippingKey, pubsub.ExchangeOrderDirect, handleShipping); err != nil {
+		fmt.Printf("failed creating shipping queue: %s", err)
+		return
+	}
+
+	if err = pubsub.NewQueue(rclient, pubsub.QueueInventory, pubsub.InventoryKey, pubsub.ExchangeOrderDirect, handleInventory); err != nil {
+		fmt.Printf("failed creating inventory queue: %s", err)
 		return
 	}
 
@@ -58,7 +74,7 @@ func main() {
 			}
 
 			if userWantsCheckout := commands.PromptCheckout(); userWantsCheckout {
-				err = handleCheckout(shoppingService, user)
+				err = handleCheckout(rclient, shoppingService, user)
 				if err != nil {
 					fmt.Printf("Failed checkout: %s", err)
 					return
@@ -71,7 +87,7 @@ func main() {
 				return
 			}
 		case commands.Checkout:
-			err = handleCheckout(shoppingService, user)
+			err = handleCheckout(rclient, shoppingService, user)
 		case commands.Exit:
 			fmt.Println("Thanks for stopping by, cya next time!")
 			return
@@ -121,7 +137,7 @@ func handleCatalogue(shoppingService *services.ShoppingService, user *domain.Use
 }
 
 func handleCart(shoppingService *services.ShoppingService, user *domain.User) error {
-	cart, err := shoppingService.ShowCart(user.ID)
+	cart, err := shoppingService.GetCart(user.ID)
 	if err != nil {
 		return fmt.Errorf("failed retrieving cart: %s", err)
 	}
@@ -131,6 +147,43 @@ func handleCart(shoppingService *services.ShoppingService, user *domain.User) er
 	return nil
 }
 
-func handleCheckout(shoppingService *services.ShoppingService, user *domain.User) error {
+func handleCheckout(rclient *amqp091.Connection, shoppingService *services.ShoppingService, user *domain.User) error {
+	// check cart for items
+	_, err := shoppingService.GetCart(user.ID)
+	if err != nil {
+		return fmt.Errorf("failed retrieving cart: %s", err)
+	}
+
+	// >>>>>> create order <<<<<<
+	err = pubsub.NewPublish(rclient, pubsub.ExchangeOrderDirect, pubsub.TransactionKey, map[string]string{"hello": "there"})
+	if err != nil {
+		return fmt.Errorf("failed publishing: %s", err)
+	}
+
+	// Create 3 subs [x]
+	// Create 3 pubs [x]
+	// start transaction
+	// start shipping
+	// start inventory
+
+	// pub all 3 events
+	// sub all 3 events and await for response from replyQ
+	// If any of the events fail, create event handlers to rollback
+
 	return nil
+}
+
+func handleTransaction(payload map[string]string) bool {
+	fmt.Println("handling transaction!")
+	return true
+}
+
+func handleShipping(payload string) bool {
+	fmt.Println("handling shipping!")
+	return false
+}
+
+func handleInventory(payload string) bool {
+	fmt.Println("handling inventory!")
+	return false
 }

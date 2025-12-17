@@ -48,7 +48,7 @@ func (c *ShoppingService) AddToCart(userID, productID string, quantity int) (*do
 	return cart, nil
 }
 
-func (c *ShoppingService) ShowCart(userID string) (*domain.Cart, error) {
+func (c *ShoppingService) GetCart(userID string) (*domain.Cart, error) {
 	cart, err := c.cartRepo.Get(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting cart from repo: %s", err)

@@ -1,15 +1,15 @@
 package pubsub
 
-type ExchangeKey string
+const ExchangeOrderDirect string = "order_direct"
 
 const (
-	ExchangeOrderDirect ExchangeKey = "order_direct"
+	QueueTransaction string = "order.transaction"
+	QueueShipping    string = "order.shipping"
+	QueueInventory   string = "order.inventory"
 )
 
-type QueueName string
-
 const (
-	QueueTransaction QueueName = "order.transaction"
-	QueueShipping    QueueName = "order.shipping"
-	QueueInventory   QueueName = "order.inventory"
+	TransactionKey string = "transaction"
+	ShippingKey    string = "shipping"
+	InventoryKey   string = "inventory"
 )
