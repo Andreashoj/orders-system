@@ -64,14 +64,11 @@ func NewQueue(
 }
 
 func QueueHandler[T any](
-	client *amqp091.Connection,
 	ch <-chan amqp091.Delivery,
-	handler func(client *amqp091.Connection, payload T) bool) {
+	handler func(payload T) bool) {
 	go func() {
 		for tr := range ch {
-
 			var payload T
-			fmt.Println(payload)
 			err := json.Unmarshal(tr.Body, &payload)
 			if err != nil {
 				fmt.Printf("failed decoding payload in transaction goroutine: %s", err)
@@ -79,7 +76,9 @@ func QueueHandler[T any](
 				return
 			}
 
-			ok := handler(client, payload)
+			ok := handler(payload)
+			fmt.Println(ok)
+
 			if !ok {
 				fmt.Printf("something went wrong while handling the transaction! ARH!")
 				tr.Nack(false, true)

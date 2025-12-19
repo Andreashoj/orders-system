@@ -10,7 +10,7 @@ import (
 
 type OrderRepo interface {
 	Create(order *domain.Order) error
-	Get(userID string) (*domain.Order, error) // change param type if userID doesn't make sense..
+	Get(orderID string) (*domain.Order, error) // change param type if userID doesn't make sense..
 }
 
 type orderRepo struct {
@@ -51,7 +51,35 @@ func (o orderRepo) Create(order *domain.Order) error {
 	return nil
 }
 
-func (o orderRepo) Get(userID string) (*domain.Order, error) {
-	//TODO implement me
-	panic("implement me")
+func (o orderRepo) Get(orderID string) (*domain.Order, error) {
+	var order domain.Order
+	err := o.DB.QueryRow(`SELECT id, user_id, complete, completed_at, created_at FROM orders`).Scan(&order.ID, &order.UserID, &order.Complete, &order.CompletedAt, &order.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed retrieving order: %s", err)
+	}
+
+	itemsQuery := `
+		SELECT products.name, products.id, order_products.price, order_products.quantity FROM order_products
+			LEFT JOIN products
+				ON order_products.product_id = products.id
+					WHERE order_products.order_id = $1
+	`
+	rows, err := o.DB.Query(itemsQuery, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying order items: %s", err)
+	}
+
+	var items []domain.OrderItem
+	for rows.Next() {
+		var item domain.OrderItem
+		err = rows.Scan(&item.Name, &item.ProductID, &item.Price, &item.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed scanning order item")
+		}
+
+		items = append(items, item)
+	}
+
+	order.Items = items
+	return &order, nil
 }

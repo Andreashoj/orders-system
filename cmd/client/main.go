@@ -13,14 +13,22 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-var ReplyChannels pubsub.ReplyChannels
-
 func main() {
 	DB, err := db.NewDB()
 	if err != nil {
 		fmt.Printf("Failed starting the DB: %s", err)
 		return
 	}
+
+	// Repos
+	userRepo := repos.NewUserRepo(DB)
+	cartRepo := repos.NewCartRepo(DB)
+	productRepo := repos.NewProductRepo(DB)
+	orderRepo := repos.NewOrderRepo(DB)
+
+	// Services
+	shoppingService := services.NewShoppingService(productRepo, cartRepo, orderRepo, userRepo)
+	registrationService := services.NewRegistrationService(userRepo, cartRepo)
 
 	// Message Broker
 	rclient, err := pubsub.NewRabbitMqClient()
@@ -35,57 +43,28 @@ func main() {
 		return
 	}
 
+	// Queues
 	txQueue, _, err := pubsub.NewQueue(rclient, pubsub.QueueTransaction, pubsub.TransactionKey, pubsub.ExchangeOrderDirect)
 	if err != nil {
 		fmt.Printf("failed creating transaction queue: %s", err)
 		return
 	}
 
-	pubsub.QueueHandler(rclient, txQueue, handleTransaction)
-
-	//if _, err = pubsub.NewQueue(rclient, pubsub.QueueShipping, pubsub.ShippingKey, pubsub.ExchangeOrderDirect, handleShipping); err != nil {
-	//	fmt.Printf("failed creating shipping queue: %s", err)
-	//	return
-	//}
-	//
-	//if _, err = pubsub.NewQueue(rclient, pubsub.QueueInventory, pubsub.InventoryKey, pubsub.ExchangeOrderDirect, handleInventory); err != nil {
-	//	fmt.Printf("failed creating inventory queue: %s", err)
-	//	return
-	//}
-	//
-	//invCh, err := pubsub.NewQueue(rclient, pubsub.QueueInventoryReply, pubsub.InventoryKeyReply, pubsub.ExchangeOrderDirect)
-	//if err != nil {
-	//	fmt.Printf("failed creating inventory queue: %s", err)
-	//	return
-	//}
-	//
-	//shpCh, err := pubsub.NewQueue(rclient, pubsub.QueueShippingReply, pubsub.ShippingKeyReply, pubsub.ExchangeOrderDirect, handleShippingReply)
-	//if err != nil {
-	//	fmt.Printf("failed creating inventory queue: %s", err)
-	//	return
-	//}
-
 	txCh, txConn, err := pubsub.NewQueue(rclient, pubsub.QueueTransactionReply, pubsub.TransactionKeyReply, pubsub.ExchangeOrderDirect)
 	if err != nil {
 		fmt.Printf("failed creating inventory queue: %s", err)
 		return
 	}
-
 	fmt.Println(txConn)
 
-	ReplyChannels.TransactionReply = txCh
-	//ReplyChannels.InventoryReply = invCh
-	//ReplyChannels.ShippingReply = shpCh
+	// Event/Queue Handlers
+	eventHandler := pubsub.NewEventHandler(rclient, shoppingService)
+	eventHandler.ReplyChannels.TransactionReply = txCh
 
-	// Repos
-	userRepo := repos.NewUserRepo(DB)
-	cartRepo := repos.NewCartRepo(DB)
-	productRepo := repos.NewProductRepo(DB)
-	orderRepo := repos.NewOrderRepo(DB)
-
-	// Services
-	shoppingService := services.NewShoppingService(productRepo, cartRepo, orderRepo)
-	registrationService := services.NewRegistrationService(userRepo, cartRepo)
+	pubsub.QueueHandler(txQueue, func(payload pubsub.PubTransaction) bool {
+		fmt.Println("payload", payload)
+		return eventHandler.HandleTransaction(payload)
+	})
 
 	user, err := handleIntroduction(registrationService)
 	if err != nil {
@@ -105,7 +84,7 @@ func main() {
 			}
 
 			if userWantsCheckout := commands.PromptCheckout(); userWantsCheckout {
-				err = handleCheckout(rclient, shoppingService, user)
+				err = handleCheckout(rclient, eventHandler, shoppingService, user)
 				if err != nil {
 					fmt.Printf("Failed checkout: %s", err)
 					return
@@ -118,7 +97,7 @@ func main() {
 				return
 			}
 		case commands.Checkout:
-			err = handleCheckout(rclient, shoppingService, user)
+			err = handleCheckout(rclient, eventHandler, shoppingService, user)
 			if err != nil {
 				fmt.Printf("Failed creating order: %s", err)
 				return
@@ -181,13 +160,13 @@ func handleCart(shoppingService *services.ShoppingService, user *domain.User) er
 	return nil
 }
 
-func handleCheckout(rclient *amqp091.Connection, shoppingService *services.ShoppingService, user *domain.User) error {
+func handleCheckout(rclient *amqp091.Connection, eventHandler *pubsub.EventHandler, shoppingService *services.ShoppingService, user *domain.User) error {
 	order, err := shoppingService.CreateOrder(user.ID)
 	if err != nil {
 		return fmt.Errorf("failed creating order: %s", err)
 	}
 
-	// Create tx event!
+	// Queue up events for transaction, shipment and inventory
 	err = pubsub.NewPublish(rclient, pubsub.ExchangeOrderDirect, pubsub.TransactionKey, pubsub.PubTransaction{OrderId: order.ID})
 	if err != nil {
 		return fmt.Errorf("failed publishing: %s", err)
@@ -197,32 +176,34 @@ func handleCheckout(rclient *amqp091.Connection, shoppingService *services.Shopp
 	replyCounter := 0
 	for {
 		select {
-
-		// GOT ABSOLUTELY REKT BY OLD QUEUE MESSAGES WITHOUT PAYLOAD. - YUP.
+		// GOT ABSOLUTELY REKT BY OLD QUEUE MESSAGES WITHOUT PAYLOAD. - YUP HAPPENED AGAIN
 		// NEXT STEP IS ACTUALLY DOING TRANSACTION FUNCTIONALITY IN THE HANDLER.
 		// SO WHAT SHOULD HAPPEN IN THE TRANSACTION HANDLER?
+		// User should PAY - need to create a balance ? no pay
 		// AFTER THAT IS DONE, SAME FOR SHIPPING AND INVENTORY
 		// ALSO, FIGURE OUT HOW TO DI IN THE HANDLERS, STRUCT FOR THE EVENT HANDLERS.
-		case tx := <-ReplyChannels.TransactionReply:
-			fmt.Println("reply message", string(tx.Body))
+		case tx := <-eventHandler.ReplyChannels.TransactionReply:
 			var transactionReply pubsub.TransactionReplyMessage
 			err = json.Unmarshal(tx.Body, &transactionReply)
 			if err != nil {
 				return fmt.Errorf("failed decoding transaction payload: %s", err)
 			}
-			fmt.Println("got message!", tx)
+
 			if transactionReply.CorrelationID == order.ID {
 				responses.TransactionComplete = transactionReply.Success
 				replyCounter++
 				tx.Ack(false)
 			}
-		case tx := <-ReplyChannels.ShippingReply:
+
+			// Requeue message
+			tx.Nack(false, true)
+		case tx := <-eventHandler.ReplyChannels.ShippingReply:
 			fmt.Println("got message!", tx)
-		case tx := <-ReplyChannels.InventoryReply:
+		case tx := <-eventHandler.ReplyChannels.InventoryReply:
 			fmt.Println("got message!", tx)
 		}
 
-		if replyCounter == 3 {
+		if replyCounter == 1 {
 			break
 		}
 	}
@@ -255,40 +236,4 @@ func handleCheckout(rclient *amqp091.Connection, shoppingService *services.Shopp
 	// If any of the events fail, create event handlers to rollback
 
 	return nil
-}
-
-func handleTransaction(client *amqp091.Connection, payload pubsub.PubTransaction) bool {
-	replyMsg := pubsub.TransactionReplyMessage{CorrelationID: payload.OrderId, Success: true}
-	fmt.Println("reply struct:", replyMsg)
-	err := pubsub.NewPublish(client, pubsub.ExchangeOrderDirect, pubsub.TransactionKeyReply, replyMsg)
-	if err != nil {
-		fmt.Printf("failed publishing to reply queue")
-		return false
-	}
-	return true
-}
-
-func handleShipping(client *amqp091.Connection, payload string) bool {
-	fmt.Println("handling shipping!")
-	return false
-}
-
-func handleInventory(client *amqp091.Connection, payload string) bool {
-	fmt.Println("handling inventory!")
-	return false
-}
-
-func handleTransactionReply(client *amqp091.Connection, payload string) bool {
-	fmt.Println("handling transaction!")
-	return true
-}
-
-func handleShippingReply(client *amqp091.Connection, payload string) bool {
-	fmt.Println("handling shipping!")
-	return false
-}
-
-func handleInventoryReply(client *amqp091.Connection, payload string) bool {
-	fmt.Println("handling inventory!")
-	return false
 }

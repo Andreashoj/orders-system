@@ -10,6 +10,7 @@ import (
 type User struct {
 	ID        string    `json:"id,omitempty"`
 	Name      string    `json:"name,omitempty"`
+	Balance   int       `json:"balance,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -21,6 +22,7 @@ func NewUser(username string) (*User, error) {
 	return &User{
 		ID:        uuid.New().String(),
 		Name:      username,
+		Balance:   10000,
 		CreatedAt: time.Now(),
 	}, nil
 }

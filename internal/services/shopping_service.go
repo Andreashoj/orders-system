@@ -11,13 +11,15 @@ type ShoppingService struct {
 	productRepo repos.ProductRepo
 	cartRepo    repos.CartRepo
 	orderRepo   repos.OrderRepo
+	userRepo    repos.UserRepo
 }
 
-func NewShoppingService(productRepo repos.ProductRepo, cartRepo repos.CartRepo, orderRepo repos.OrderRepo) *ShoppingService {
+func NewShoppingService(productRepo repos.ProductRepo, cartRepo repos.CartRepo, orderRepo repos.OrderRepo, userRepo repos.UserRepo) *ShoppingService {
 	return &ShoppingService{
 		productRepo: productRepo,
 		cartRepo:    cartRepo,
 		orderRepo:   orderRepo,
+		userRepo:    userRepo,
 	}
 }
 
@@ -72,4 +74,35 @@ func (c *ShoppingService) CreateOrder(userID string) (*domain.Order, error) {
 	}
 
 	return order, nil
+}
+
+func (c *ShoppingService) GetOrder(orderID string) (*domain.Order, error) {
+	order, err := c.orderRepo.Get(orderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed getting order: %s", err)
+	}
+
+	return order, nil
+}
+
+func (c *ShoppingService) ChargeUser(userID string, amount int) bool {
+	user, err := c.userRepo.Get(userID)
+	if err != nil {
+		fmt.Printf("failed retrieving user: %s", err)
+		return false
+	}
+
+	if user.Balance >= amount {
+		user.Balance -= amount
+		err = c.userRepo.Update(user)
+
+		if err != nil {
+			fmt.Errorf("failed updating user")
+			return false
+		}
+
+		return true
+	}
+
+	return false
 }
