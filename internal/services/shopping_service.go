@@ -10,12 +10,14 @@ import (
 type ShoppingService struct {
 	productRepo repos.ProductRepo
 	cartRepo    repos.CartRepo
+	orderRepo   repos.OrderRepo
 }
 
-func NewShoppingService(productRepo repos.ProductRepo, cartRepo repos.CartRepo) *ShoppingService {
+func NewShoppingService(productRepo repos.ProductRepo, cartRepo repos.CartRepo, orderRepo repos.OrderRepo) *ShoppingService {
 	return &ShoppingService{
 		productRepo: productRepo,
 		cartRepo:    cartRepo,
+		orderRepo:   orderRepo,
 	}
 }
 
@@ -55,4 +57,19 @@ func (c *ShoppingService) GetCart(userID string) (*domain.Cart, error) {
 	}
 
 	return cart, nil
+}
+
+func (c *ShoppingService) CreateOrder(userID string) (*domain.Order, error) {
+	order := domain.NewOrder(userID)
+	cart, err := c.cartRepo.Get(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed getting cart: %s", err)
+	}
+	order.AddCart(cart)
+	err = c.orderRepo.Create(order)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating order: %s", err)
+	}
+
+	return order, nil
 }

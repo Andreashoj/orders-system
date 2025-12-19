@@ -13,14 +13,7 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-type TransactionMessage struct{}
-type replyChannels struct {
-	TransactionReply <-chan amqp091.Delivery
-	InventoryReply   <-chan amqp091.Delivery
-	ShippingReply    <-chan amqp091.Delivery
-}
-
-var ReplyChannels replyChannels
+var ReplyChannels pubsub.ReplyChannels
 
 func main() {
 	DB, err := db.NewDB()
@@ -42,7 +35,7 @@ func main() {
 		return
 	}
 
-	txQueue, err := pubsub.NewQueue(rclient, pubsub.QueueTransaction, pubsub.TransactionKey, pubsub.ExchangeOrderDirect)
+	txQueue, _, err := pubsub.NewQueue(rclient, pubsub.QueueTransaction, pubsub.TransactionKey, pubsub.ExchangeOrderDirect)
 	if err != nil {
 		fmt.Printf("failed creating transaction queue: %s", err)
 		return
@@ -72,11 +65,13 @@ func main() {
 	//	return
 	//}
 
-	txCh, err := pubsub.NewQueue(rclient, pubsub.QueueTransactionReply, pubsub.TransactionKeyReply, pubsub.ExchangeOrderDirect)
+	txCh, txConn, err := pubsub.NewQueue(rclient, pubsub.QueueTransactionReply, pubsub.TransactionKeyReply, pubsub.ExchangeOrderDirect)
 	if err != nil {
 		fmt.Printf("failed creating inventory queue: %s", err)
 		return
 	}
+
+	fmt.Println(txConn)
 
 	ReplyChannels.TransactionReply = txCh
 	//ReplyChannels.InventoryReply = invCh
@@ -86,9 +81,10 @@ func main() {
 	userRepo := repos.NewUserRepo(DB)
 	cartRepo := repos.NewCartRepo(DB)
 	productRepo := repos.NewProductRepo(DB)
+	orderRepo := repos.NewOrderRepo(DB)
 
 	// Services
-	shoppingService := services.NewShoppingService(productRepo, cartRepo)
+	shoppingService := services.NewShoppingService(productRepo, cartRepo, orderRepo)
 	registrationService := services.NewRegistrationService(userRepo, cartRepo)
 
 	user, err := handleIntroduction(registrationService)
@@ -123,6 +119,10 @@ func main() {
 			}
 		case commands.Checkout:
 			err = handleCheckout(rclient, shoppingService, user)
+			if err != nil {
+				fmt.Printf("Failed creating order: %s", err)
+				return
+			}
 		case commands.Exit:
 			fmt.Println("Thanks for stopping by, cya next time!")
 			return
@@ -178,41 +178,43 @@ func handleCart(shoppingService *services.ShoppingService, user *domain.User) er
 	}
 
 	commands.DisplayCart(cart)
-
 	return nil
 }
 
 func handleCheckout(rclient *amqp091.Connection, shoppingService *services.ShoppingService, user *domain.User) error {
-	// check cart for items
-	_, err := shoppingService.GetCart(user.ID)
+	order, err := shoppingService.CreateOrder(user.ID)
 	if err != nil {
-		return fmt.Errorf("failed retrieving cart: %s", err)
+		return fmt.Errorf("failed creating order: %s", err)
 	}
 
-	// >>>>>> create order <<<<<<
-	order := domain.Order{ID: "tester"}
-
-	err = pubsub.NewPublish(rclient, pubsub.ExchangeOrderDirect, pubsub.TransactionKey, map[string]string{"hello": "there"})
+	// Create tx event!
+	err = pubsub.NewPublish(rclient, pubsub.ExchangeOrderDirect, pubsub.TransactionKey, pubsub.PubTransaction{OrderId: order.ID})
 	if err != nil {
 		return fmt.Errorf("failed publishing: %s", err)
 	}
 
-	// => pub here (goes to handleTransaction) => handleTransaction does its thing => pubs to replyQ which we await below here
-	responses := make(map[string]bool)
+	var responses pubsub.OrderProcessRequirements
+	replyCounter := 0
 	for {
 		select {
+
+		// GOT ABSOLUTELY REKT BY OLD QUEUE MESSAGES WITHOUT PAYLOAD. - YUP.
+		// NEXT STEP IS ACTUALLY DOING TRANSACTION FUNCTIONALITY IN THE HANDLER.
+		// SO WHAT SHOULD HAPPEN IN THE TRANSACTION HANDLER?
+		// AFTER THAT IS DONE, SAME FOR SHIPPING AND INVENTORY
+		// ALSO, FIGURE OUT HOW TO DI IN THE HANDLERS, STRUCT FOR THE EVENT HANDLERS.
 		case tx := <-ReplyChannels.TransactionReply:
-			var transactionReply struct {
-				correlationID string
-				status        bool
-			}
+			fmt.Println("reply message", string(tx.Body))
+			var transactionReply pubsub.TransactionReplyMessage
 			err = json.Unmarshal(tx.Body, &transactionReply)
 			if err != nil {
 				return fmt.Errorf("failed decoding transaction payload: %s", err)
 			}
 			fmt.Println("got message!", tx)
-			if transactionReply.correlationID == order.ID {
-				responses["transaction_complete"] = transactionReply.status
+			if transactionReply.CorrelationID == order.ID {
+				responses.TransactionComplete = transactionReply.Success
+				replyCounter++
+				tx.Ack(false)
 			}
 		case tx := <-ReplyChannels.ShippingReply:
 			fmt.Println("got message!", tx)
@@ -220,22 +222,22 @@ func handleCheckout(rclient *amqp091.Connection, shoppingService *services.Shopp
 			fmt.Println("got message!", tx)
 		}
 
-		if len(responses) == 3 {
+		if replyCounter == 3 {
 			break
 		}
 	}
 
-	for response := range responses {
-		// Rollbacks:
-		// Transaction => status refund
-		// Inventory => check order and re-add products to product_inventory table
-		// Shipping => delete entry
-		// These should also be created as queues and published to
-		if !responses["transaction_complete"] {
-
-			return fmt.Errorf("order failed, transaction was not completed: %s", err)
-		}
-	}
+	//for response := range responses {
+	//	// Rollbacks:il
+	//	// Transaction => status refund
+	//	// Inventory => check order and re-add products to product_inventory table
+	//	// Shipping => delete entry
+	//	// These should also be created as queues and published to
+	//	if !responses.TransactionComplete {
+	//		// Rollback strategy
+	//		return fmt.Errorf("order failed, transaction was not completed: %s", err)
+	//	}
+	//}
 
 	// Mark order as complete here ()
 
@@ -255,8 +257,10 @@ func handleCheckout(rclient *amqp091.Connection, shoppingService *services.Shopp
 	return nil
 }
 
-func handleTransaction(client *amqp091.Connection, payload map[string]string) bool {
-	err := pubsub.NewPublish(client, pubsub.ExchangeOrderDirect, pubsub.TransactionKeyReply, "")
+func handleTransaction(client *amqp091.Connection, payload pubsub.PubTransaction) bool {
+	replyMsg := pubsub.TransactionReplyMessage{CorrelationID: payload.OrderId, Success: true}
+	fmt.Println("reply struct:", replyMsg)
+	err := pubsub.NewPublish(client, pubsub.ExchangeOrderDirect, pubsub.TransactionKeyReply, replyMsg)
 	if err != nil {
 		fmt.Printf("failed publishing to reply queue")
 		return false

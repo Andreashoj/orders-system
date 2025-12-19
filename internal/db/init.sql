@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS order_products (
                                               order_id UUID NOT NULL REFERENCES orders(id),
                                               product_id UUID NOT NULL REFERENCES products(id),
                                               quantity INT NOT NULL,
+                                              price INT NOT NULL,
                                               PRIMARY KEY (order_id, product_id)
 );
 
