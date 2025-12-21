@@ -7,6 +7,7 @@ import (
 	"github.com/andreashoj/order-system/internal/commands"
 	"github.com/andreashoj/order-system/internal/db"
 	"github.com/andreashoj/order-system/internal/domain"
+	"github.com/andreashoj/order-system/internal/handlers"
 	"github.com/andreashoj/order-system/internal/pubsub"
 	"github.com/andreashoj/order-system/internal/repos"
 	"github.com/andreashoj/order-system/internal/services"
@@ -84,7 +85,7 @@ func main() {
 			}
 
 			if userWantsCheckout := commands.PromptCheckout(); userWantsCheckout {
-				err = handleCheckout(rclient, eventHandler, shoppingService, user)
+				err = handlers.HandleCheckout(rclient, eventHandler, shoppingService, user)
 				if err != nil {
 					fmt.Printf("Failed checkout: %s", err)
 					return
@@ -157,83 +158,5 @@ func handleCart(shoppingService *services.ShoppingService, user *domain.User) er
 	}
 
 	commands.DisplayCart(cart)
-	return nil
-}
-
-func handleCheckout(rclient *amqp091.Connection, eventHandler *pubsub.EventHandler, shoppingService *services.ShoppingService, user *domain.User) error {
-	order, err := shoppingService.CreateOrder(user.ID)
-	if err != nil {
-		return fmt.Errorf("failed creating order: %s", err)
-	}
-
-	// Queue up events for transaction, shipment and inventory
-	err = pubsub.NewPublish(rclient, pubsub.ExchangeOrderDirect, pubsub.TransactionKey, pubsub.PubTransaction{OrderId: order.ID})
-	if err != nil {
-		return fmt.Errorf("failed publishing: %s", err)
-	}
-
-	var responses pubsub.OrderProcessRequirements
-	replyCounter := 0
-	for {
-		select {
-		// GOT ABSOLUTELY REKT BY OLD QUEUE MESSAGES WITHOUT PAYLOAD. - YUP HAPPENED AGAIN
-		// NEXT STEP IS ACTUALLY DOING TRANSACTION FUNCTIONALITY IN THE HANDLER.
-		// SO WHAT SHOULD HAPPEN IN THE TRANSACTION HANDLER?
-		// User should PAY - need to create a balance ? no pay
-		// AFTER THAT IS DONE, SAME FOR SHIPPING AND INVENTORY
-		// ALSO, FIGURE OUT HOW TO DI IN THE HANDLERS, STRUCT FOR THE EVENT HANDLERS.
-		case tx := <-eventHandler.ReplyChannels.TransactionReply:
-			var transactionReply pubsub.TransactionReplyMessage
-			err = json.Unmarshal(tx.Body, &transactionReply)
-			if err != nil {
-				return fmt.Errorf("failed decoding transaction payload: %s", err)
-			}
-
-			if transactionReply.CorrelationID == order.ID {
-				responses.TransactionComplete = transactionReply.Success
-				replyCounter++
-				tx.Ack(false)
-			}
-
-			// Requeue message
-			tx.Nack(false, true)
-		case tx := <-eventHandler.ReplyChannels.ShippingReply:
-			fmt.Println("got message!", tx)
-		case tx := <-eventHandler.ReplyChannels.InventoryReply:
-			fmt.Println("got message!", tx)
-		}
-
-		if replyCounter == 1 {
-			break
-		}
-	}
-
-	//for response := range responses {
-	//	// Rollbacks:il
-	//	// Transaction => status refund
-	//	// Inventory => check order and re-add products to product_inventory table
-	//	// Shipping => delete entry
-	//	// These should also be created as queues and published to
-	//	if !responses.TransactionComplete {
-	//		// Rollback strategy
-	//		return fmt.Errorf("order failed, transaction was not completed: %s", err)
-	//	}
-	//}
-
-	// Mark order as complete here ()
-
-	// Create 3 subs [x]
-	// Create 3 pubs [x]
-	// start transaction
-	// start shipping
-	// start inventory
-
-	// Handlers should communicate to reply queues when they are done
-	// Compare reply queues responses here (order_id), if all 3 are done then we can mark order as complete
-
-	// pub all 3 events
-	// sub all 3 events and await for response from replyQ
-	// If any of the events fail, create event handlers to rollback
-
 	return nil
 }
