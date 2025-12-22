@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/andreashoj/order-system/internal/commands"
@@ -11,7 +10,6 @@ import (
 	"github.com/andreashoj/order-system/internal/pubsub"
 	"github.com/andreashoj/order-system/internal/repos"
 	"github.com/andreashoj/order-system/internal/services"
-	"github.com/rabbitmq/amqp091-go"
 )
 
 func main() {
@@ -59,8 +57,9 @@ func main() {
 	fmt.Println(txConn)
 
 	// Event/Queue Handlers
+	eventPublisher := pubsub.NewEventPublisher(rclient)
 	eventHandler := pubsub.NewEventHandler(rclient, shoppingService)
-	eventHandler.ReplyChannels.TransactionReply = txCh
+	eventHandler.GetReplyChannels().TransactionReply = txCh
 
 	pubsub.QueueHandler(txQueue, func(payload pubsub.PubTransaction) bool {
 		fmt.Println("payload", payload)
@@ -85,7 +84,7 @@ func main() {
 			}
 
 			if userWantsCheckout := commands.PromptCheckout(); userWantsCheckout {
-				err = handlers.HandleCheckout(rclient, eventHandler, shoppingService, user)
+				err = handlers.HandleCheckout(eventHandler.GetReplyChannels(), eventPublisher, shoppingService, user)
 				if err != nil {
 					fmt.Printf("Failed checkout: %s", err)
 					return
@@ -98,7 +97,7 @@ func main() {
 				return
 			}
 		case commands.Checkout:
-			err = handleCheckout(rclient, eventHandler, shoppingService, user)
+			err = handlers.HandleCheckout(eventHandler.GetReplyChannels(), eventPublisher, shoppingService, user)
 			if err != nil {
 				fmt.Printf("Failed creating order: %s", err)
 				return
@@ -124,7 +123,7 @@ func handleIntroduction(registrationService *services.RegistrationService) (*dom
 	return user, nil
 }
 
-func handleCatalogue(shoppingService *services.ShoppingService, user *domain.User) error {
+func handleCatalogue(shoppingService services.ShoppingService, user *domain.User) error {
 	products, err := shoppingService.GetAllProducts()
 	if err != nil {
 		return fmt.Errorf("beep boop, something went wrong - is that a you or me problem.. ?: %s", err)
@@ -151,7 +150,7 @@ func handleCatalogue(shoppingService *services.ShoppingService, user *domain.Use
 	return nil
 }
 
-func handleCart(shoppingService *services.ShoppingService, user *domain.User) error {
+func handleCart(shoppingService services.ShoppingService, user *domain.User) error {
 	cart, err := shoppingService.GetCart(user.ID)
 	if err != nil {
 		return fmt.Errorf("failed retrieving cart: %s", err)

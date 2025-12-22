@@ -6,37 +6,28 @@ import (
 
 	"github.com/andreashoj/order-system/internal/domain"
 	"github.com/andreashoj/order-system/internal/pubsub"
-	"github.com/andreashoj/order-system/internal/services"
 )
 
-//type CheckoutHandler struct {
-//	EventHandler    *pubsub.EventHandler
-//	shoppingService *services.ShoppingService
-//}
+type OrderCreator interface {
+	CreateOrder(userID string) (*domain.Order, error)
+}
 
-// TODO:
-// Move publish into a service that can be mocked, so we avoid having a direct dependency to rabbitmq
-// Mock shoppingService with an interface for CreateOrder
-// Mock responses to the reply channel
-// Assert results
-
-func HandleCheckout(eventHandler pubsub.EventHandler, shoppingService *services.ShoppingService, user *domain.User) error {
+func HandleCheckout(replyChannels *pubsub.ReplyChannels, eventPublisher pubsub.EventPublisher, shoppingService OrderCreator, user *domain.User) error {
 	order, err := shoppingService.CreateOrder(user.ID)
 	if err != nil {
 		return fmt.Errorf("failed creating order: %s", err)
 	}
 
-	// Queue up events for transaction, shipment and inventory
-	err = pubsub.NewPublish(eventHandler.GetClient(), pubsub.ExchangeOrderDirect, pubsub.TransactionKey, pubsub.PubTransaction{OrderId: order.ID})
+	err = eventPublisher.PubOrder(order.ID)
 	if err != nil {
-		return fmt.Errorf("failed publishing: %s", err)
+		return fmt.Errorf("failed publishing event: %s", err)
 	}
 
 	var responses pubsub.OrderProcessRequirements
 	replyCounter := 0
 	for {
 		select {
-		case tx := <-eventHandler.GetReplyChannels().TransactionReply:
+		case tx := <-replyChannels.TransactionReply:
 			var transactionReply pubsub.TransactionReplyMessage
 			err = json.Unmarshal(tx.Body, &transactionReply)
 			if err != nil {
@@ -46,14 +37,16 @@ func HandleCheckout(eventHandler pubsub.EventHandler, shoppingService *services.
 			if transactionReply.CorrelationID == order.ID {
 				responses.TransactionComplete = transactionReply.Success
 				replyCounter++
-				tx.Ack(false)
+				if err = tx.Ack(false); err != nil {
+					return fmt.Errorf("failed acknowledgement: %s", err)
+				}
 			}
 
 			// Requeue message
 			tx.Nack(false, true)
-		case tx := <-eventHandler.GetReplyChannels().ShippingReply:
+		case tx := <-replyChannels.ShippingReply:
 			fmt.Println("got message!", tx)
-		case tx := <-eventHandler.GetReplyChannels().InventoryReply:
+		case tx := <-replyChannels.InventoryReply:
 			fmt.Println("got message!", tx)
 		}
 

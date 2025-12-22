@@ -1,42 +1,111 @@
 package handlers
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/andreashoj/order-system/internal/domain"
 	"github.com/andreashoj/order-system/internal/pubsub"
-	"github.com/andreashoj/order-system/internal/services"
+	"github.com/google/uuid"
+	"github.com/rabbitmq/amqp091-go"
 )
 
-// So far added interface to event_handler (to make it easier to mock here)
+type MockOrderCreator struct {
+	CreateOrderFunc func(userID string) (*domain.Order, error)
+}
 
-func TestHandleCheckout(t *testing.T) {
-	type args struct {
-		eventHandler    pubsub.EventHandler
-		shoppingService *services.ShoppingService
-		user            *domain.User
+func (m *MockOrderCreator) CreateOrder(userID string) (*domain.Order, error) {
+	return m.CreateOrderFunc(userID)
+}
+
+type MockEventPublisher struct{}
+
+func (m *MockEventPublisher) PubOrder(orderID string) error {
+	return nil
+}
+
+type mockAcknowledger struct{}
+
+func (m *mockAcknowledger) Ack(tag uint64, multiple bool) error {
+	return nil
+}
+
+func (m *mockAcknowledger) Nack(tag uint64, multiple bool, requeue bool) error {
+	return nil
+}
+
+func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
+	return nil
+}
+
+func setupTestUser() *domain.User {
+	return &domain.User{
+		ID:        uuid.NewString(),
+		Name:      "Tester",
+		Balance:   1000,
+		CreatedAt: time.Now(),
 	}
+}
 
-	var mockEventHandler pubsub.EventHandler
-
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{
-			name: "happy-path",
-			args: args{
-				eventHandler: mockEventHandler,
-			},
+func setupTestOrderCreator(orderID string) *MockOrderCreator {
+	return &MockOrderCreator{
+		CreateOrderFunc: func(userID string) (*domain.Order, error) {
+			return &domain.Order{ID: orderID}, nil
 		},
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := HandleCheckout(tt.args.eventHandler, tt.args.shoppingService, tt.args.user); (err != nil) != tt.wantErr {
-				t.Errorf("HandleCheckout() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+func setupTestChannels(txChan, shipChan, invChan chan amqp091.Delivery) pubsub.ReplyChannels {
+	return pubsub.ReplyChannels{
+		TransactionReply: txChan,
+		InventoryReply:   invChan,
+		ShippingReply:    shipChan,
+	}
+}
+
+func TestHandleCheckout_OrderSuccess(t *testing.T) {
+	mockEventPublisher := &MockEventPublisher{}
+	user := setupTestUser()
+	orderID := uuid.NewString()
+	mockShopping := setupTestOrderCreator(orderID)
+
+	msg, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: orderID})
+	reply := amqp091.Delivery{
+		ContentType:  "application/json",
+		Body:         msg,
+		Acknowledger: &mockAcknowledger{},
+	}
+
+	txChan := make(chan amqp091.Delivery, 10)
+	txChan <- reply
+	replyChans := setupTestChannels(txChan, make(chan amqp091.Delivery, 10), make(chan amqp091.Delivery, 10))
+
+	err := HandleCheckout(&replyChans, mockEventPublisher, mockShopping, user)
+	if err != nil {
+		t.Errorf("Failed running tests with error: %s", err)
+	}
+}
+
+func TestHandleCheckout_OrderShipmentFailure(t *testing.T) {
+	mockEventPublisher := &MockEventPublisher{}
+	user := setupTestUser()
+	orderID := uuid.NewString()
+	mockShopping := setupTestOrderCreator(orderID)
+
+	msg, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: orderID})
+	reply := amqp091.Delivery{
+		ContentType:  "application/json",
+		Body:         msg,
+		Acknowledger: &mockAcknowledger{},
+	}
+
+	txChan := make(chan amqp091.Delivery, 10)
+	txChan <- reply
+	replyChans := setupTestChannels(txChan, make(chan amqp091.Delivery, 10), make(chan amqp091.Delivery, 10))
+
+	err := HandleCheckout(&replyChans, mockEventPublisher, mockShopping, user)
+	if err != nil {
+		t.Errorf("Failed running tests with error: %s", err)
 	}
 }

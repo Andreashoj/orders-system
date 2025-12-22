@@ -15,7 +15,7 @@ type EventHandler interface {
 
 type eventHandler struct {
 	Client          *amqp091.Connection
-	shoppingService *services.ShoppingService
+	shoppingService services.ShoppingService
 	ReplyChannels   *ReplyChannels
 }
 
@@ -25,7 +25,7 @@ type ReplyChannels struct {
 	ShippingReply    <-chan amqp091.Delivery
 }
 
-func NewEventHandler(client *amqp091.Connection, shoppingService *services.ShoppingService) EventHandler {
+func NewEventHandler(client *amqp091.Connection, shoppingService services.ShoppingService) EventHandler {
 	return &eventHandler{
 		Client:          client,
 		shoppingService: shoppingService,

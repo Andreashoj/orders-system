@@ -7,15 +7,24 @@ import (
 	"github.com/andreashoj/order-system/internal/repos"
 )
 
-type ShoppingService struct {
+type ShoppingService interface {
+	GetAllProducts() ([]domain.Product, error)
+	AddToCart(userID, productID string, quantity int) (*domain.Cart, error)
+	GetCart(userID string) (*domain.Cart, error)
+	CreateOrder(userID string) (*domain.Order, error)
+	GetOrder(orderID string) (*domain.Order, error)
+	ChargeUser(userID string, amount int) bool
+}
+
+type shoppingService struct {
 	productRepo repos.ProductRepo
 	cartRepo    repos.CartRepo
 	orderRepo   repos.OrderRepo
 	userRepo    repos.UserRepo
 }
 
-func NewShoppingService(productRepo repos.ProductRepo, cartRepo repos.CartRepo, orderRepo repos.OrderRepo, userRepo repos.UserRepo) *ShoppingService {
-	return &ShoppingService{
+func NewShoppingService(productRepo repos.ProductRepo, cartRepo repos.CartRepo, orderRepo repos.OrderRepo, userRepo repos.UserRepo) ShoppingService {
+	return &shoppingService{
 		productRepo: productRepo,
 		cartRepo:    cartRepo,
 		orderRepo:   orderRepo,
@@ -23,7 +32,7 @@ func NewShoppingService(productRepo repos.ProductRepo, cartRepo repos.CartRepo, 
 	}
 }
 
-func (c *ShoppingService) GetAllProducts() ([]domain.Product, error) {
+func (c *shoppingService) GetAllProducts() ([]domain.Product, error) {
 	products, err := c.productRepo.GetAll()
 	if err != nil {
 		return nil, fmt.Errorf("failed getting products: %s", err)
@@ -32,7 +41,7 @@ func (c *ShoppingService) GetAllProducts() ([]domain.Product, error) {
 	return products, nil
 }
 
-func (c *ShoppingService) AddToCart(userID, productID string, quantity int) (*domain.Cart, error) {
+func (c *shoppingService) AddToCart(userID, productID string, quantity int) (*domain.Cart, error) {
 	cart, err := c.cartRepo.Get(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting the cart: %s", err)
@@ -52,7 +61,7 @@ func (c *ShoppingService) AddToCart(userID, productID string, quantity int) (*do
 	return cart, nil
 }
 
-func (c *ShoppingService) GetCart(userID string) (*domain.Cart, error) {
+func (c *shoppingService) GetCart(userID string) (*domain.Cart, error) {
 	cart, err := c.cartRepo.Get(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting cart from repo: %s", err)
@@ -61,7 +70,7 @@ func (c *ShoppingService) GetCart(userID string) (*domain.Cart, error) {
 	return cart, nil
 }
 
-func (c *ShoppingService) CreateOrder(userID string) (*domain.Order, error) {
+func (c *shoppingService) CreateOrder(userID string) (*domain.Order, error) {
 	order := domain.NewOrder(userID)
 	cart, err := c.cartRepo.Get(userID)
 	if err != nil {
@@ -76,7 +85,7 @@ func (c *ShoppingService) CreateOrder(userID string) (*domain.Order, error) {
 	return order, nil
 }
 
-func (c *ShoppingService) GetOrder(orderID string) (*domain.Order, error) {
+func (c *shoppingService) GetOrder(orderID string) (*domain.Order, error) {
 	order, err := c.orderRepo.Get(orderID)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting order: %s", err)
@@ -85,7 +94,7 @@ func (c *ShoppingService) GetOrder(orderID string) (*domain.Order, error) {
 	return order, nil
 }
 
-func (c *ShoppingService) ChargeUser(userID string, amount int) bool {
+func (c *shoppingService) ChargeUser(userID string, amount int) bool {
 	user, err := c.userRepo.Get(userID)
 	if err != nil {
 		fmt.Printf("failed retrieving user: %s", err)
