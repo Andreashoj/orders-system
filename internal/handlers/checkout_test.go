@@ -25,13 +25,18 @@ func (m *MockEventPublisher) PubOrder(orderID string) error {
 	return nil
 }
 
-type mockAcknowledger struct{}
+type mockAcknowledger struct {
+	AckCalled  bool
+	NackCalled bool
+}
 
 func (m *mockAcknowledger) Ack(tag uint64, multiple bool) error {
+	m.AckCalled = true
 	return nil
 }
 
 func (m *mockAcknowledger) Nack(tag uint64, multiple bool, requeue bool) error {
+	m.NackCalled = true
 	return nil
 }
 
@@ -70,7 +75,7 @@ func TestHandleCheckout_OrderSuccess(t *testing.T) {
 	orderID := uuid.NewString()
 	mockShopping := setupTestOrderCreator(orderID)
 
-	msg, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: orderID})
+	msg, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: orderID, Success: true})
 	reply := amqp091.Delivery{
 		ContentType:  "application/json",
 		Body:         msg,
@@ -87,13 +92,51 @@ func TestHandleCheckout_OrderSuccess(t *testing.T) {
 	}
 }
 
-func TestHandleCheckout_OrderShipmentFailure(t *testing.T) {
+func TestHandleCheckout_OrderTransactionCorrectAcksCalled(t *testing.T) {
 	mockEventPublisher := &MockEventPublisher{}
 	user := setupTestUser()
 	orderID := uuid.NewString()
 	mockShopping := setupTestOrderCreator(orderID)
 
-	msg, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: orderID})
+	msgWrongCorrelationID, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: "wrong-id"})
+	replyWrongMockAcknowledger := &mockAcknowledger{}
+	replyWrong := amqp091.Delivery{
+		ContentType:  "application/json",
+		Body:         msgWrongCorrelationID,
+		Acknowledger: replyWrongMockAcknowledger,
+	}
+
+	msgCorrectCorrelationID, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: orderID})
+	replyCorrectMockAcknowledger := &mockAcknowledger{}
+	replyCorrect := amqp091.Delivery{
+		ContentType:  "application/json",
+		Body:         msgCorrectCorrelationID,
+		Acknowledger: replyCorrectMockAcknowledger,
+	}
+
+	txChan := make(chan amqp091.Delivery, 10)
+	txChan <- replyWrong
+	txChan <- replyCorrect
+	replyChans := setupTestChannels(txChan, make(chan amqp091.Delivery, 10), make(chan amqp091.Delivery, 10))
+
+	HandleCheckout(&replyChans, mockEventPublisher, mockShopping, user)
+
+	if !replyWrongMockAcknowledger.NackCalled {
+		t.Errorf("Unrelated order was not requeued after being handled")
+	}
+
+	if !replyCorrectMockAcknowledger.AckCalled {
+		t.Errorf("Did not acknowledge the correct order")
+	}
+}
+
+func TestHandleCheckout_OrderTransactionFailed(t *testing.T) {
+	mockEventPublisher := &MockEventPublisher{}
+	user := setupTestUser()
+	orderID := uuid.NewString()
+	mockShopping := setupTestOrderCreator(orderID)
+
+	msg, _ := json.Marshal(pubsub.TransactionReplyMessage{CorrelationID: orderID, Success: false})
 	reply := amqp091.Delivery{
 		ContentType:  "application/json",
 		Body:         msg,
@@ -105,7 +148,7 @@ func TestHandleCheckout_OrderShipmentFailure(t *testing.T) {
 	replyChans := setupTestChannels(txChan, make(chan amqp091.Delivery, 10), make(chan amqp091.Delivery, 10))
 
 	err := HandleCheckout(&replyChans, mockEventPublisher, mockShopping, user)
-	if err != nil {
+	if err == nil {
 		t.Errorf("Failed running tests with error: %s", err)
 	}
 }

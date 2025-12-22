@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/andreashoj/order-system/internal/domain"
@@ -11,6 +12,12 @@ import (
 type OrderCreator interface {
 	CreateOrder(userID string) (*domain.Order, error)
 }
+
+var (
+	CheckoutTransactionError = errors.New("failed transaction")
+	CheckoutInventoryError   = errors.New("failed inventory")
+	CheckoutShipmentError    = errors.New("failed shipment")
+)
 
 func HandleCheckout(replyChannels *pubsub.ReplyChannels, eventPublisher pubsub.EventPublisher, shoppingService OrderCreator, user *domain.User) error {
 	order, err := shoppingService.CreateOrder(user.ID)
@@ -23,7 +30,11 @@ func HandleCheckout(replyChannels *pubsub.ReplyChannels, eventPublisher pubsub.E
 		return fmt.Errorf("failed publishing event: %s", err)
 	}
 
-	var responses pubsub.OrderProcessRequirements
+	// TODO: Remove after all cases have been written
+	responses := pubsub.OrderProcessRequirements{
+		ShipmentComplete:  true,
+		InventoryComplete: true,
+	}
 	replyCounter := 0
 	for {
 		select {
@@ -53,6 +64,14 @@ func HandleCheckout(replyChannels *pubsub.ReplyChannels, eventPublisher pubsub.E
 		if replyCounter == 1 {
 			break
 		}
+	}
+
+	if !responses.TransactionComplete {
+		return CheckoutTransactionError
+	} else if !responses.ShipmentComplete {
+		return CheckoutShipmentError
+	} else if !responses.InventoryComplete {
+		return CheckoutInventoryError
 	}
 
 	return nil
